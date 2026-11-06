@@ -1,0 +1,58 @@
+name: Bug report
+description: Something in the game or the patch does not work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please attach the newest log from the game's `logs\` folder. Do not attach game files.
+  - type: input
+    id: build
+    attributes:
+      label: Patch build
+      description: Version shown in the first line of the log, or the release name
+      placeholder: "0.0.5"
+    validations:
+      required: true
+  - type: input
+    id: exe
+    attributes:
+      label: Game exe version or SHA-1
+      description: The supported exe is DAYTONA.EXE v1.1, 729,600 bytes, SHA-1 28ee8057e75ac7b5187519d255c8a1622df8de33
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 24H2"
+    validations:
+      required: true
+  - type: input
+    id: graphics
+    attributes:
+      label: Graphics card and driver
+      placeholder: "NVIDIA GeForce RTX 3060, driver 560.94"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Mode, course, car, settings, and what you did
+      placeholder: |
+        1. Arcade mode, Beginner course, automatic
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log
+      description: Attach the newest `logs\ddraw_proxy_*.log` from the game folder (drag the file here)

@@ -1,0 +1,51 @@
+# Never committed: game files, disc images, music rips, build output, logs, test output.
+# Built DLLs go in GitHub Releases.
+
+# game assets folder and any game files
+/assets/
+*.exe
+*.EXE
+*.dll
+*.DLL
+*.BIN
+*.bin
+*.BMP
+*.bmp
+*.FNT
+*.fnt
+*.DAT
+*.dat
+*.HLP
+*.CNT
+*.INF
+DAYTONA.INI
+6801.TXT
+# disc images and audio
+*.iso
+*.ISO
+*.cue
+*.CUE
+*.img
+*.mdf
+*.mds
+*.ccd
+*.zip
+*.0[0-9][0-9]
+*.flac
+*.wav
+cdaudio.toc
+# build output
+/out/
+/dist/
+/build/*.o
+*.o
+*.obj
+*.map
+*.lst
+# logs, test output
+*.log
+logs/
+*.png
+!docs/reference/**/*.png
+__pycache__/
+*.pyc
