@@ -32,10 +32,12 @@ build_variant() {  # build_variant release|debug <dir> [extra flags]
       echo 'static const char kDefaultIni[] ='
       awk '{ sub(/\r$/, ""); gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); print "    \"" $0 "\\n\"" }' "$d/ddraw_proxy.ini"
       echo '    ;'; } > out/ini_default.gen.h
-    i686-w64-mingw32-g++-win32 -std=c++17 -O2 -Wall -s -shared -static-libgcc -static-libstdc++ -static -Wl,--no-insert-timestamp -include out/version.gen.h -I src -I out -I out/sdl3/include "$@" \
-        -o "$d/ddraw.dll" src/ddraw_proxy.cpp src/cdaudio_emu.cpp src/trace.cpp src/ddraw_own.cpp src/present_d3d11.cpp src/input_sdl.cpp src/options_menu.cpp src/hardening.cpp src/draw_distance.cpp src/pause_menu.cpp src/main_menu.cpp src/cheats.cpp out/res.o src/ddraw.def -Lout/sdl3/lib -lSDL3 -lsetupapi -limm32 -lole32 -loleaut32 -lversion -lpsapi -ladvapi32 -lshell32 -luser32 -lgdi32 -lkernel32 -lwinmm -luuid
+    i686-w64-mingw32-g++-win32 -std=c++17 -O2 -msse2 -mfpmath=sse -Wall -s -shared -static-libgcc -static-libstdc++ -static -Wl,--no-insert-timestamp -include out/version.gen.h -I src -I out -I out/sdl3/include "$@" \
+        -o "$d/ddraw.dll" src/ddraw_proxy.cpp src/cdaudio_emu.cpp src/trace.cpp src/ddraw_own.cpp src/present_d3d11.cpp src/screenshot.cpp src/input_sdl.cpp src/options_menu.cpp src/hardening.cpp src/draw_distance.cpp src/pause_menu.cpp src/main_menu.cpp src/cheats.cpp src/render/renderer3d.cpp src/render/sky.cpp src/render/persp.cpp src/render/gpu_list.cpp src/render/list_flush.cpp src/render/textures.cpp out/res.o src/ddraw.def -Lout/sdl3/lib -lSDL3 -lsetupapi -limm32 -lole32 -loleaut32 -lversion -lpsapi -ladvapi32 -lshell32 -luser32 -lgdi32 -lkernel32 -lwinmm -luuid
 }
 build_variant release "$OUT"
-build_variant debug "$OUT/debug" -DULT_DEBUG
+# the debug build's render capture (Release 2 tools) is in the private repository only: built in when its source is there
+if [ -f src/render/render_capture.cpp ]; then RCAP="-DULT_RENDER_CAPTURE src/render/render_capture.cpp"; else RCAP=""; fi
+build_variant debug "$OUT/debug" -DULT_DEBUG $RCAP
 sha1sum "$OUT/ddraw.dll" "$OUT/debug/ddraw.dll" | tee "$OUT/SHA1.txt"
 sh build/build_installer.sh

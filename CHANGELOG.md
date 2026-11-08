@@ -3,6 +3,30 @@
 Each release's files are on the Releases page, with their SHA-1s. Builds are reproducible from the source of the
 same version (see `README.md`, Building from source).
 
+## 2.0.0 (Release 2)
+
+The new renderer: the game's 3D drawn again at your screen's resolution, from the game's own polygons, textures and
+drawing order, with the game itself unchanged. Everything from 1.0.0 stays.
+
+- **PRESET** on the DISPLAY page: ENHANCED (the default) or ORIGINAL (the 1996 look, the game's own renderer); any
+  other mix of the rows below shows CUSTOM. Settings from 1.0.0 are kept and start on ENHANCED.
+- **RENDERER** NEW or ORIGINAL; **RESOLUTION** 640X400, 2X, 3X, 4X or DISPLAY (your screen's).
+- **FILTER:** nearest, sharp bilinear, bilinear, trilinear or anisotropic, for the 3D and the sky.
+- **MAPPING:** PC (the 1996 release's texture mapping), SATURN (as the Saturn draws its polygons) or PERSPECTIVE
+  (perspective-correct: textures stay put on the road as it comes towards you), from the true depth of each
+  polygon's corners.
+- **ANTIALIAS:** off, 2x, 4x or 8x, with hairline gaps between polygons closed behind them.
+- **HUD SCALE** 100, 75 or 50 (the race HUD in whole pixels, each part towards its corner; the in-car dashboard and
+  course map stay at the game's size) and **HUD FILTER**.
+- **CRT:** DOSBox Staging's CRT shader (Hyllian's) with its arcade presets: OFF, AUTO, SATURN, PC or 800P.
+- **DEPTH BUFFER** for ReShade's depth effects (works with ReShade's default settings).
+- **Screenshots** on Page Down, in the game folder's `screenshots` folder.
+- **Hardening:** if the graphics driver resets, the display and renderer are made again (GDI after three resets);
+  a renderer failure falls back to the original renderer; the log reports frame pacing each minute.
+
+Known issue: on one 1080p PC with an AMD graphics card a thin dark vertical line shows left of the rev counter
+with HUD SCALE below 100 (not on an NVIDIA card; believed to be an AMD driver difference); it is in the issue list for the next release.
+
 ## 1.0.0 (Release 1)
 
 The first public release: the 1996 PC version of Daytona USA (v1.1) on Windows 11, kept as it plays, with:
@@ -37,5 +61,5 @@ The release build has no test options; the debug build (`debug\ddraw.dll`, in th
 
 ## Development builds
 
-Release 1 was built in 24 development builds, 0.0.1 to 0.0.24 (30 October to 5 November 2026), each tested on
-Windows 11. They were not published.
+Release 1 was built in 24 development builds, 0.0.1 to 0.0.24 (30 October to 5 November 2026), and Release 2 in 21,
+1.1.1 to 1.1.21 (1 to 8 November 2026), each tested on Windows 11. They were not published.

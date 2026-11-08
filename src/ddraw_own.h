@@ -20,6 +20,10 @@ void own_display_config(const DisplayConfig &d);
 
 HRESULT own_directdraw_create(LPDIRECTDRAW *out, const OwnDDConfig &cfg);
 
+/* The pixels of one of our surfaces (an IDirectDrawSurface pointer the game holds); false if it is not ours
+   (OwnDirectDraw=0) or gone. RGB565 (or 555, as the game set), pitch in bytes. */
+bool own_surface_bits(const void *surface, const BYTE **bits, int *w, int *h, int *pitch);
+
 /* Frame capture shared by both paths: the frame about to be shown (top-down RGB565). */
 void frame_capture(const BYTE *bits, int w, int h, int pitch);
 void frame_capture_config(const OwnDDConfig &cfg);

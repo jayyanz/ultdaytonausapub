@@ -49,3 +49,6 @@ logs/
 !docs/reference/**/*.png
 __pycache__/
 *.pyc
+
+# Release 2 render captures (game data)
+*.udcap

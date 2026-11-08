@@ -3,7 +3,9 @@
  *   OPTIONS   GAMEPLAY, SOUND, DISPLAY, CONTROLS, EXIT
  *   GAMEPLAY  the game's GAME MODE, DIFFICULTY, ENEMY LEVEL, and SPEED (ours, 0.0.19: MPH or KM/H)
  *   SOUND     the game's SOUND MODE, MUSIC TEST, SOUND TEST
- *   DISPLAY   SCREEN, SCALING, PICTURE (16:10, 4:3, FRAME), VSYNC (ours) and the game's CLIP SIZE, MOTION, BG DISP, SEETHROUGH
+ *   DISPLAY   SCREEN, SCALING, PICTURE (16:10, 4:3, FRAME), VSYNC, PRESET (ENHANCED / ORIGINAL / CUSTOM), RENDERER (ours) and the game's CLIP SIZE, MOTION, BG DISP,
+ *             SEETHROUGH, SEETHRU LOOK, RESOLUTION, FILTER, MAPPING, DEPTH BUFFER, ANTIALIAS, HUD SCALE, HUD FILTER and CRT (ours, for the
+ *             new renderer); the page scrolls
  *             (until now only in its Windows menu)
  *   CONTROLS  LAYOUT, TRIGGER POINT, DEAD ZONE, KEYS WITH PAD and BUTTONS (ours)
  *   CHEATS    (0.0.23) CHEATS UNLOCK and one switch per cheat the game contains (cheats.cpp)
@@ -25,13 +27,24 @@
 #include "input_sdl.h"
 #include "options_menu.h"
 #include "draw_distance.h"
+#include "render/renderer3d.h"
 #include "main_menu.h"
 #include "cheats.h"
 
 DisplayConfig proxy_display_get();
 void proxy_display_set(const DisplayConfig &d);
 void proxy_draw_distance_set(DrawDistance level);
+void proxy_renderer3d_set(Renderer3D mode);
+void proxy_seethrough_look_set(SeeThroughLook look);
+void proxy_resolution3d_set(int res);
+void proxy_filter_set(int f);
+void proxy_msaa_set(int samples);
+void proxy_mapping_set(int m);
+void proxy_depth_set(bool on);
+void proxy_hud_scale_set(int pct);
+void proxy_hud_filter_set(int f);
 void proxy_speed_set(bool kmh);
+void proxy_crt_set(int mode);
 
 namespace {
 
@@ -59,6 +72,7 @@ constexpr WORD kUp = 0x1008, kDown = 0x2080, kRight = 0x8000, kLeft = 0x4000, kC
 enum Page { Top, Gameplay, Sound, Display, Controls, Cheats, Buttons };
 Page g_page = Top;
 int g_row;             /* cursor on our page */
+int g_ptop;            /* first item row shown on a page that scrolls (DISPLAY) */
 int g_col, g_top;      /* BUTTONS page: column (0 keyboard, 1 controller) and the first row shown */
 const int *g_map;      /* drawing filter while the game's routine runs: game row -> our row, -1 dropped */
 
@@ -111,7 +125,49 @@ const char *const kOnOff[] = { "ON", "OFF", nullptr };
 const char *const kClip[] = { "NORMAL", "WIDE", "VAST", "FAR", "MAX", nullptr };   /* FAR and MAX: ours (draw_distance.cpp) */
 const char *const kMotion[] = { "FAST", "SMOOTH", nullptr };
 const char *const kNoYes[] = { "NO", "YES", nullptr };
+const char *const kRenderer[] = { "ORIGINAL", "NEW", nullptr };   /* Release 2: render/renderer3d.cpp */
+const char *const kSeeThroughLook[] = { "TEXTURED", "OUTLINE", nullptr };
+const char *const kResolution3D[] = { "640X400", "2X", "3X", "4X", "DISPLAY", nullptr };   /* shown in this order */
+const char *const kFilter[] = { "NEAREST", "SHARP BILINEAR", "BILINEAR", "TRILINEAR", "ANISOTROPIC", nullptr };
+const char *const kMapping[] = { "PC", "SATURN", "PERSPECTIVE", nullptr };   /* R2-7 */
+const char *const kOffOn[] = { "OFF", "ON", nullptr };
+const char *const kMsaa[] = { "OFF", "2X", "4X", "8X", nullptr };
+const char *const kHudScale[] = { "100", "75", "50", nullptr };   /* per cent (the game's font has no % sign) */
+const int kHudPct[] = { 100, 75, 50 };
+const char *const kHudFilter[] = { "NEAREST", "SHARP BILINEAR", "BILINEAR", nullptr };
+const char *const kCrt[] = { "OFF", "AUTO", "SATURN", "PC", "800P", nullptr };   /* R2-6: DOSBox Staging's CRT shader */
 const char *const kLayout[] = { "MODERN", "CLASSIC", "CUSTOM", nullptr };   /* CUSTOM: shown, not chosen */
+const char *const kPreset[] = { "ENHANCED", "ORIGINAL", "CUSTOM", nullptr };   /* R2-9; CUSTOM: shown, not chosen */
+
+/* R2-9 (1.1.20), the DISPLAY page's PRESET: the new renderer's rows set at once (decisions log, 1 Nov 2026).
+   ENHANCED (the default): RENDERER NEW at the display's resolution, perspective-correct mapping, trilinear filtering,
+   4x antialiasing, the race HUD at the game's size, sharp bilinear. ORIGINAL: the 1996 PC look, the game's own
+   renderer (and the new renderer's rows at the game's own: 640x400, nearest, PC mapping, no antialiasing, HUD
+   nearest, so turning RENDERER to NEW keeps that look). CRT, DEPTH BUFFER, SEETHRU LOOK, the picture and the
+   draw distance are not part of either. Any other mix shows CUSTOM. */
+struct PresetValues { Renderer3D r; int res, filter, mapping, msaa, hud, hud_filter; };
+const PresetValues kPresets[2] = {
+    { Renderer3D::New, 0, 3, 2, 4, 100, 1 },
+    { Renderer3D::Original, 1, 0, 0, 1, 100, 0 },
+};
+int preset_shown()
+{
+    for (int i = 0; i < 2; i++) {
+        const PresetValues &p = kPresets[i];
+        if (renderer3d_get() == p.r && renderer3d_resolution_get() == p.res && renderer3d_filter_get() == p.filter &&
+            renderer3d_mapping_get() == p.mapping && renderer3d_msaa_get() == p.msaa && renderer3d_hud_scale_get() == p.hud &&
+            renderer3d_hud_filter_get() == p.hud_filter) return i;
+    }
+    return 2;
+}
+void preset_apply(int i)
+{
+    const PresetValues &p = kPresets[i == 1 ? 1 : 0];
+    proxy_resolution3d_set(p.res); proxy_filter_set(p.filter); proxy_mapping_set(p.mapping); proxy_msaa_set(p.msaa);
+    proxy_hud_scale_set(p.hud); proxy_hud_filter_set(p.hud_filter);
+    proxy_renderer3d_set(p.r);
+    plog("options: PRESET %s", i == 1 ? "ORIGINAL" : "ENHANCED");
+}
 
 void post_command(int id) { PostMessageA(at<HWND>(kHwnd), WM_COMMAND, id, 0); }   /* the game's own menu command */
 
@@ -125,6 +181,20 @@ const Item kDisplayItems[] = {
     { "PICTURE", kPicture, [] { Picture p = dget().picture; return p == Picture::Fill ? 1 : p == Picture::Frame ? 2 : 0; },
       [](int v) { DisplayConfig d = dget(); d.picture = v == 1 ? Picture::Fill : v == 2 ? Picture::Frame : Picture::Native; proxy_display_set(d); } },
     { "VSYNC", kOnOff, [] { return dget().vsync ? 0 : 1; }, [](int v) { DisplayConfig d = dget(); d.vsync = v == 0; proxy_display_set(d); } },
+    { "CRT", kCrt, [] { return present_crt(); }, [](int v) { proxy_crt_set(v); } },
+    { "PRESET", kPreset, [] { return preset_shown(); },
+      [](int v) { if (v == 2) v = preset_shown() == 0 ? 1 : 0; preset_apply(v); } },   /* stepping onto CUSTOM goes on */
+    { "RENDERER", kRenderer, [] { return (int)renderer3d_get(); }, [](int v) { proxy_renderer3d_set((Renderer3D)v); } },
+    { "RESOLUTION", kResolution3D, [] { int r = renderer3d_resolution_get(); return r == 0 ? 4 : r - 1; },
+      [](int v) { proxy_resolution3d_set(v == 4 ? 0 : v + 1); } },
+    { "FILTER", kFilter, [] { return renderer3d_filter_get(); }, [](int v) { proxy_filter_set(v); } },
+    { "MAPPING", kMapping, [] { return renderer3d_mapping_get(); }, [](int v) { proxy_mapping_set(v); } },
+    { "DEPTH BUFFER", kOffOn, [] { return renderer3d_depth_get() ? 1 : 0; }, [](int v) { proxy_depth_set(v == 1); } },
+    { "ANTIALIAS", kMsaa, [] { int s = renderer3d_msaa_get(); return s >= 8 ? 3 : s >= 4 ? 2 : s >= 2 ? 1 : 0; },
+      [](int v) { proxy_msaa_set(1 << v); } },
+    { "HUD SCALE", kHudScale, [] { int p = renderer3d_hud_scale_get(); return p >= 100 ? 0 : p >= 75 ? 1 : 2; },
+      [](int v) { proxy_hud_scale_set(kHudPct[v]); } },
+    { "HUD FILTER", kHudFilter, [] { return renderer3d_hud_filter_get(); }, [](int v) { proxy_hud_filter_set(v); } },
     { "CLIP SIZE", kClip,
       [] { int dd = (int)draw_distance_get(); if (dd) return 2 + dd; int c = at<int>(kClipLevel); return c >= 0 && c <= 2 ? c : 0; },
       [](int v) {
@@ -135,7 +205,9 @@ const Item kDisplayItems[] = {
     { "MOTION", kMotion, [] { return at<int>(kBuffers) == 3 ? 1 : 0; }, [](int v) { post_command(v ? 0x1D2 : 0x1D1); } },
     { "BG DISP", kOnOff, [] { return at<int>(kBgDisp) ? 0 : 1; }, [](int v) { if ((v == 0) != (at<int>(kBgDisp) != 0)) post_command(0x1D3); } },
     { "SEETHROUGH", kOnOff, [] { return at<int>(kSeeThrough) ? 0 : 1; }, [](int v) { if ((v == 0) != (at<int>(kSeeThrough) != 0)) post_command(0x1D4); } },
-};
+    { "SEETHRU LOOK", kSeeThroughLook, [] { return (int)renderer3d_seethrough_get(); }, [](int v) { proxy_seethrough_look_set((SeeThroughLook)v); } },
+};constexpr int kDisplayCount = (int)(sizeof kDisplayItems / sizeof kDisplayItems[0]);
+
 
 const Item kControlItems[] = {
     { "LAYOUT", kLayout, [] { return input_preset_shown(); },   /* CUSTOM once the controller column is changed by hand */
@@ -177,11 +249,12 @@ const Item kTopItems[] = {
     { "CHEATS", nullptr, nullptr, nullptr, 0, 0, 0, Cheats },
 };
 
-struct PageDef { const Item *items; int n; int last_row; int spacing; const char *last_label; int value_x = 0x78; int top = 0x18; };
+/* shown: item rows visible at once (0: all); more scroll like the BUTTONS list, with BACK / EXIT kept under them */
+struct PageDef { const Item *items; int n; int last_row; int spacing; const char *last_label; int value_x = 0x78; int top = 0x18; int shown = 0; };
 PageDef page_def(Page p)
 {
     switch (p) {
-    case Display: return { kDisplayItems, 8, 8, 0x14, "BACK" };     /* 9 rows: a little closer together */
+    case Display: return { kDisplayItems, kDisplayCount, kDisplayCount, 0x12, "BACK", 0x78, 0x18, 9 };   /* 9 rows at a time, scrolling */
     case Controls: return { kControlItems, 5, 7, 0x18, "BACK" };
     case Cheats: return { kCheatItems, 11, 11, 0x0F, "BACK", 0x90, 0x16 };   /* 12 rows, closer still; BACK just above the hint line */
     default: return { kTopItems, cheats_installed() ? 5 : 4, 7, 0x18, "EXIT" };
@@ -196,7 +269,7 @@ const int kGameplayRows[] = { 0, 1, 2 }, kSoundRows[] = { 3, 4, 5 };
 int font(bool selected) { return selected ? at<int>(kFontSelected) : at<int>(kFontNormal); }
 int image(int i) { return game_get_image(at<int>(kImages), i); }
 
-void enter(Page p, int row) { g_page = p; g_row = row; }
+void enter(Page p, int row) { g_page = p; g_row = row; g_ptop = 0; }
 
 /* ---------- the BUTTONS page ---------- */
 
@@ -287,7 +360,10 @@ void our_page_input(WORD in)
     /* rows: items 0..n-1, a gap, then BACK / EXIT on last_row */
     if (in & kUp) { do g_row = (g_row + nrows - 1) % nrows; while (g_row >= d.n && g_row < d.last_row); }
     else if (in & kDown) { do g_row = (g_row + 1) % nrows; while (g_row >= d.n && g_row < d.last_row); }
-    else if (g_row < d.n && (in & (kLeft | kRight))) {
+    if (in & (kUp | kDown)) {                       /* a page that scrolls keeps the cursor's row in view */
+        if (d.shown && g_row < d.n && g_row < g_ptop) g_ptop = g_row;
+        if (d.shown && g_row < d.n && g_row >= g_ptop + d.shown) g_ptop = g_row - d.shown + 1;
+    } else if (g_row < d.n && (in & (kLeft | kRight))) {
         const Item &it = d.items[g_row];
         if (it.get && it.set && !(it.locked && it.locked())) {
             int v = it.get();
@@ -319,16 +395,22 @@ void our_page_input(WORD in)
 void our_page_draw()
 {
     PageDef e = page_def(g_page);
-    auto row_y = [&](int r) { return e.top + e.spacing * r; };
+    const int first = e.shown ? g_ptop : 0, count = e.shown && e.shown < e.n ? e.shown : e.n;
+    const int back_slot = e.shown ? count : e.last_row;
+    auto row_y = [&](int r) { return e.top + e.spacing * (r == e.last_row ? back_slot : r - first); };
     game_draw_image(0, 0, image(0));               /* the game's background and cursor arrow */
     game_draw_image(0, row_y(g_row), image(1));
-    for (int r = 0; r < e.n; r++) {
+    for (int r = first; r < first + count; r++) {
         const Item &it = e.items[r];
         game_draw_text(font(r == g_row), 8, row_y(r), "%s", it.label);
         if (!it.get) continue;
         if (it.locked && it.locked()) { game_draw_text(font(false), e.value_x, row_y(r), "%s", "LOCKED"); continue; }
         int v = it.get();
-        if (it.choices) {                           /* every choice, the one in force highlighted (as the game's) */
+        int width = 0;
+        if (it.choices) for (int c = 0; it.choices[c]; c++) width += 8 * ((int)strlen(it.choices[c]) + 2);
+        if (it.choices && e.value_x + width - 16 > 352) {   /* too many to show: the one in force, between arrows */
+            game_draw_text(font(true), e.value_x, row_y(r), "< %s >", it.choices[v]);
+        } else if (it.choices) {                    /* every choice, the one in force highlighted (as the game's) */
             int x = e.value_x;
             for (int c = 0; it.choices[c]; c++) {
                 game_draw_text(font(c == v), x, row_y(r), "%s", it.choices[c]);
@@ -340,6 +422,10 @@ void our_page_draw()
         }
     }
     game_draw_text(font(g_row == e.last_row), 8, row_y(e.last_row), "%s", e.last_label);
+    if (e.shown && e.shown < e.n) {                 /* where the list is, as on BUTTONS */
+        char pos[16]; snprintf(pos, sizeof pos, "%d-%d OF %d", first + 1, first + count, e.n);
+        game_draw_text(font(false), e.value_x, row_y(e.last_row), "%s", pos);
+    }
     if (g_row < e.n && e.items[g_row].hint) {
         const Item &it = e.items[g_row];
         const char *h = it.locked && it.locked() && it.locked_hint ? it.locked_hint : it.hint;

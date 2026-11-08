@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <initializer_list>
+#include <set>
 #include "proxy.h"
 #include "ddraw_own.h"
 #include "hardening.h"
@@ -163,13 +164,17 @@ private:
     OwnSurface *primary_ = nullptr;
     LONG presents_ = 0;
     Presenter *presenter_ = nullptr;
+    int lost_ = 0;   /* R2-9: Direct3D 11 devices lost so far */
     bool presenter_failed_ = false;
 };
 
 /* ---------- surface ---------- */
 
+static std::set<const void *> g_surfaces;   /* every live OwnSurface (own_surface_bits checks against it) */
+
 OwnSurface::OwnSurface(OwnDD *dd, int w, int h, DWORD caps) : dd_(dd), w_(w), h_(h), caps_(caps)
 {
+    g_surfaces.insert(static_cast<IDirectDrawSurface *>(this));
     Bmi565 b; make_bmi(b, w, h);
     void *p = nullptr;
     dib_ = CreateDIBSection(nullptr, (BITMAPINFO *)&b, DIB_RGB_COLORS, &p, nullptr, 0);
@@ -180,6 +185,7 @@ OwnSurface::OwnSurface(OwnDD *dd, int w, int h, DWORD caps) : dd_(dd), w_(w), h_
 
 OwnSurface::~OwnSurface()
 {
+    g_surfaces.erase(static_cast<IDirectDrawSurface *>(this));
     if (dc_) { SelectObject(dc_, dc_old_); DeleteDC(dc_); }
     if (dib_) DeleteObject(dib_);
     if (is_primary()) dd_->primary_gone(this);
@@ -378,6 +384,15 @@ STDMETHODIMP OwnSurface::Flip(LPDIRECTDRAWSURFACE, DWORD)
 
 void OwnSurface::after_write_to_primary() { dd_->present(this, false); }
 
+bool surface_bits(const void *surface, const BYTE **bits, int *w, int *h, int *pitch)
+{
+    if (!surface || !g_surfaces.count(surface)) return false;
+    const OwnSurface *s = static_cast<const OwnSurface *>((const IDirectDrawSurface *)surface);
+    if (!s->bits()) return false;
+    *bits = s->bits(); *w = s->width(); *h = s->height(); *pitch = s->pitch();
+    return true;
+}
+
 /* ---------- DirectDraw object ---------- */
 
 STDMETHODIMP OwnDD::QueryInterface(REFIID riid, void **out)
@@ -503,6 +518,11 @@ void OwnDD::present(const OwnSurface *s, bool vsync)
     g_current = this;
     presents_++;
     if (!hwnd_ || !IsWindow(hwnd_) || IsIconic(hwnd_)) return;
+    if (presenter_ && presenter_->lost()) {   /* R2-9: device removed or reset: a new presenter (GDI after 3 losses) */
+        present_device_lost();                /* the new renderer lets go of the old device first */
+        delete presenter_; presenter_ = nullptr;
+        if (++lost_ >= 3) { plog("display: the Direct3D 11 device was lost %d times; using GDI", lost_); g_cfg.display.d3d11 = false; }
+    }
     if (!presenter_) {
         if (g_cfg.display.d3d11) presenter_ = make_d3d11_presenter(hwnd_, g_cfg.display);
         if (!presenter_) {
@@ -600,4 +620,9 @@ HRESULT own_directdraw_create(LPDIRECTDRAW *out, const OwnDDConfig &cfg)
     if (!out) return DDERR_INVALIDPARAMS;
     *out = new OwnDD();
     return DD_OK;
+}
+
+bool own_surface_bits(const void *surface, const BYTE **bits, int *w, int *h, int *pitch)
+{
+    return surface_bits(surface, bits, w, h, pitch);
 }

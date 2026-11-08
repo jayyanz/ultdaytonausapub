@@ -29,6 +29,7 @@
 #include <string.h>
 #include <string>
 #include "proxy.h"
+#include "present.h"
 #include "trace.h"
 #include "ddraw_own.h"
 #include "input_sdl.h"
@@ -38,6 +39,10 @@
 #include "hardening.h"
 #include "draw_distance.h"
 #include "pause_menu.h"
+#ifdef ULT_RENDER_CAPTURE   /* the render capture: debug build, private source only (build_mingw.sh) */
+#include "render/render_capture.h"
+#endif
+#include "render/renderer3d.h"
 #ifndef PROXY_VERSION_STR
 #define PROXY_VERSION_STR "dev"
 #endif
@@ -53,9 +58,23 @@ static ExeCheck g_exe = ExeCheck::OtherProgram;   /* Supported: all fixes; other
 static char g_exe_sha1[41];
 #ifdef ULT_DEBUG
 static int cfg_racerate = 20, cfg_ratelog = 0, cfg_crashtest = 0;   /* [Test], debug build only */
+#ifdef ULT_RENDER_CAPTURE
+static RenderCaptureConfig cfg_rcap;                                 /* [Test] RenderCapture* (Release 2) */
+#endif
 #endif
 static int cfg_ddlog, cfg_ddfar, cfg_ddmax;                          /* [Test] DrawDistanceLog, FarRadius, MaxRadius */
 static DrawDistance cfg_drawdist = DrawDistance::Game;
+static Renderer3D cfg_r3d = Renderer3D::New;                       /* [Display] Renderer3D (Release 2) */
+static SeeThroughLook cfg_stlook = SeeThroughLook::Textured;      /* [Display] SeeThroughLook (Release 2) */
+static int cfg_res3d = 0;                                          /* [Display] Resolution3D (Release 2): 0 Display, 1 640x400, 2-4 */
+static int cfg_filter = 3;                                         /* [Display] TextureFilter (Release 2) */
+static const char *const kFilterNames[5] = { "Nearest", "Sharp", "Bilinear", "Trilinear", "Anisotropic" };
+static bool cfg_depth = false;                                     /* [Display] DepthBuffer (R2-8): Off, On */
+static int cfg_mapping = 2;                                        /* [Display] Mapping (Release 2, R2-7): 0 PC, 1 Saturn, 2 Perspective (the default, ENHANCED) */
+static int cfg_msaa = 4;                                           /* [Display] Antialiasing (Release 2): samples */
+static int cfg_hud_pct = 100, cfg_hud_filter = 1;                   /* [Display] HudScale, HudFilter (Release 2) */
+static const char *const kHudFilterNames[3] = { "Nearest", "Sharp", "Bilinear" };
+static const char *const kCrtNames[5] = { "Off", "Auto", "Saturn", "PC", "800p" };   /* [Display] Crt (R2-6) */
 static bool cfg_kmh;                                                 /* [Gameplay] Speed=KMH */
 static FILE *g_log;
 static CRITICAL_SECTION g_logcs;
@@ -98,6 +117,13 @@ static void load_config(HMODULE self)
     cfg_racerate = GetPrivateProfileIntA("Test", "RaceLogicRate", 20, ini);
     cfg_ratelog  = GetPrivateProfileIntA("Test", "RateLog", 0, ini);
     cfg_crashtest = GetPrivateProfileIntA("Test", "CrashTest", 0, ini);
+#ifdef ULT_RENDER_CAPTURE
+    cfg_rcap.every     = GetPrivateProfileIntA("Test", "RenderCapture", 0, ini);
+    cfg_rcap.max       = GetPrivateProfileIntA("Test", "RenderCaptureMax", 50, ini);
+    cfg_rcap.key_every = GetPrivateProfileIntA("Test", "RenderCaptureKeyframe", 10, ini);
+    cfg_rcap.hotkey    = GetPrivateProfileIntA("Test", "RenderCaptureHotkey", 0, ini);
+    cfg_rcap.requests  = GetPrivateProfileIntA("Test", "RenderCaptureRequests", 0, ini);
+#endif
     cfg_trace    = GetPrivateProfileIntA("Test", "TraceCalls", 0, ini);
     g_ddcfg.frame_hash       = GetPrivateProfileIntA("Test", "FrameHash", 0, ini);
     g_ddcfg.frame_dump_every = GetPrivateProfileIntA("Test", "FrameDumpEvery", 0, ini);
@@ -123,6 +149,30 @@ static void load_config(HMODULE self)
         cfg_kmh = !lstrcmpiA(v, "KMH") || !lstrcmpiA(v, "KM/H");
         GetPrivateProfileStringA("Display", "DrawDistance", "Game", v, sizeof v, ini);
         cfg_drawdist = !lstrcmpiA(v, "Max") ? DrawDistance::Max : !lstrcmpiA(v, "Far") ? DrawDistance::Far : DrawDistance::Game;
+        GetPrivateProfileStringA("Display", "Renderer3D", "New", v, sizeof v, ini);
+        cfg_r3d = !lstrcmpiA(v, "Original") ? Renderer3D::Original : Renderer3D::New;
+        GetPrivateProfileStringA("Display", "SeeThroughLook", "Textured", v, sizeof v, ini);
+        cfg_stlook = !lstrcmpiA(v, "Outline") ? SeeThroughLook::Outline : SeeThroughLook::Textured;
+        GetPrivateProfileStringA("Display", "Resolution3D", "Display", v, sizeof v, ini);
+        cfg_res3d = !lstrcmpiA(v, "640x400") ? 1 : !lstrcmpiA(v, "2x") ? 2 : !lstrcmpiA(v, "3x") ? 3 : !lstrcmpiA(v, "4x") ? 4 : 0;
+        GetPrivateProfileStringA("Display", "TextureFilter", "Trilinear", v, sizeof v, ini);
+        cfg_filter = 3;
+        for (int i = 0; i < 5; i++) if (!lstrcmpiA(v, kFilterNames[i])) cfg_filter = i;
+        GetPrivateProfileStringA("Display", "Antialiasing", "4x", v, sizeof v, ini);
+        cfg_msaa = !lstrcmpiA(v, "Off") ? 1 : !lstrcmpiA(v, "2x") ? 2 : !lstrcmpiA(v, "8x") ? 8 : 4;
+        GetPrivateProfileStringA("Display", "Mapping", "Perspective", v, sizeof v, ini);
+        cfg_mapping = !lstrcmpiA(v, "Saturn") ? 1 : !lstrcmpiA(v, "PC") ? 0 : 2;
+        GetPrivateProfileStringA("Display", "DepthBuffer", "Off", v, sizeof v, ini);
+        cfg_depth = !lstrcmpiA(v, "On");
+        cfg_hud_pct = (int)GetPrivateProfileIntA("Display", "HudScale", 100, ini);
+        GetPrivateProfileStringA("Display", "HudFilter", "Sharp", v, sizeof v, ini);
+        for (int i = 0; i < 3; i++) if (!lstrcmpiA(v, kHudFilterNames[i])) cfg_hud_filter = i;
+        GetPrivateProfileStringA("Display", "Crt", "Off", v, sizeof v, ini);
+        {
+            int crt = !lstrcmpiA(v, "Arcade") ? 1 : 0;   /* 1.1.11's name for AUTO */
+            for (int i = 0; i < 5; i++) if (!lstrcmpiA(v, kCrtNames[i])) crt = i;
+            present_set_crt(crt);
+        }
 #ifdef ULT_DEBUG
         cfg_ddlog = GetPrivateProfileIntA("Test", "DrawDistanceLog", 0, ini);
         cfg_ddfar = GetPrivateProfileIntA("Test", "FarRadius", 0, ini);
@@ -756,6 +806,10 @@ static void proxy_shutdown(void)
     DWORD t0 = GetTickCount();
     cda_shutdown();
     input_shutdown(true);
+#ifdef ULT_RENDER_CAPTURE
+    render_capture_shutdown();
+#endif
+    renderer3d_shutdown();
     plog("clean shutdown: music and controller threads stopped (%lu ms)", GetTickCount() - t0);
 }
 
@@ -1044,6 +1098,88 @@ void proxy_speed_set(bool kmh)
 {
     speed_kmh_set(kmh);
     WritePrivateProfileStringA("Gameplay", "Speed", kmh ? "KMH" : "MPH", g_proxy_ini);
+}
+
+/* RENDERER from the Options DISPLAY page, saved in [Display] Renderer3D */
+void proxy_renderer3d_set(Renderer3D mode)
+{
+    if (mode == renderer3d_get()) return;
+    renderer3d_set(mode);
+    WritePrivateProfileStringA("Display", "Renderer3D", mode == Renderer3D::New ? "New" : "Original", g_proxy_ini);
+}
+
+/* SEETHRU LOOK from the Options DISPLAY page, saved in [Display] SeeThroughLook */
+void proxy_seethrough_look_set(SeeThroughLook look)
+{
+    if (look == renderer3d_seethrough_get()) return;
+    renderer3d_seethrough_set(look);
+    WritePrivateProfileStringA("Display", "SeeThroughLook", look == SeeThroughLook::Outline ? "Outline" : "Textured", g_proxy_ini);
+}
+
+/* RESOLUTION from the Options DISPLAY page, saved in [Display] Resolution3D */
+void proxy_resolution3d_set(int res)
+{
+    if (res == renderer3d_resolution_get()) return;
+    renderer3d_resolution_set(res);
+    static const char *const names[5] = { "Display", "640x400", "2x", "3x", "4x" };
+    WritePrivateProfileStringA("Display", "Resolution3D", names[res >= 0 && res <= 4 ? res : 0], g_proxy_ini);
+}
+
+/* FILTER from the Options DISPLAY page, saved in [Display] TextureFilter */
+void proxy_filter_set(int f)
+{
+    if (f == renderer3d_filter_get()) return;
+    renderer3d_filter_set(f);
+    WritePrivateProfileStringA("Display", "TextureFilter", kFilterNames[f >= 0 && f <= 4 ? f : 3], g_proxy_ini);
+}
+
+/* ANTIALIAS from the Options DISPLAY page, saved in [Display] Antialiasing */
+/* MAPPING from the Options DISPLAY page, saved in [Display] Mapping */
+/* DEPTH BUFFER from the Options DISPLAY page, saved in [Display] DepthBuffer */
+void proxy_depth_set(bool on)
+{
+    if (on == renderer3d_depth_get()) return;
+    renderer3d_depth_set(on);
+    WritePrivateProfileStringA("Display", "DepthBuffer", on ? "On" : "Off", g_proxy_ini);
+}
+
+void proxy_mapping_set(int m)
+{
+    if (m == renderer3d_mapping_get()) return;
+    renderer3d_mapping_set(m);
+    static const char *const names[3] = { "PC", "Saturn", "Perspective" };
+    WritePrivateProfileStringA("Display", "Mapping", names[renderer3d_mapping_get()], g_proxy_ini);
+}
+
+void proxy_msaa_set(int samples)
+{
+    if (samples == renderer3d_msaa_get()) return;
+    renderer3d_msaa_set(samples);
+    const int s = renderer3d_msaa_get();
+    WritePrivateProfileStringA("Display", "Antialiasing", s == 1 ? "Off" : s == 2 ? "2x" : s == 8 ? "8x" : "4x", g_proxy_ini);
+}
+
+/* HUD SCALE and HUD FILTER from the Options DISPLAY page, saved in [Display] HudScale and HudFilter */
+void proxy_hud_scale_set(int pct)
+{
+    if (pct == renderer3d_hud_scale_get()) return;
+    renderer3d_hud_scale_set(pct);
+    char v[8]; wsprintfA(v, "%d", renderer3d_hud_scale_get());
+    WritePrivateProfileStringA("Display", "HudScale", v, g_proxy_ini);
+}
+
+void proxy_hud_filter_set(int f)
+{
+    if (f == renderer3d_hud_filter_get()) return;
+    renderer3d_hud_filter_set(f);
+    WritePrivateProfileStringA("Display", "HudFilter", kHudFilterNames[renderer3d_hud_filter_get()], g_proxy_ini);
+}
+
+/* CRT from the Options DISPLAY page, saved in [Display] Crt */
+void proxy_crt_set(int mode)
+{
+    present_set_crt(mode);
+    WritePrivateProfileStringA("Display", "Crt", kCrtNames[present_crt()], g_proxy_ini);
 }
 
 /* FAR / MAX from the Options DISPLAY page, saved in [Display] DrawDistance */
@@ -1395,6 +1531,12 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID res)
         if (cfg_ratelog) CloseHandle(CreateThread(NULL, 0, rate_logger, NULL, 0, NULL));
         crash_test_config(cfg_crashtest);
 #endif
+#ifdef ULT_RENDER_CAPTURE
+        render_capture_install(g_base, g_dir, g_exe_sha1, cfg_rcap);
+#endif
+        renderer3d_install(g_base, cfg_r3d, cfg_stlook, cfg_res3d, cfg_filter, cfg_msaa, cfg_hud_pct, cfg_hud_filter);
+        renderer3d_mapping_set(cfg_mapping);
+        renderer3d_depth_set(cfg_depth);
         install_user32_hooks();
         trace_init(g_base, cfg_trace && g_log);
         if (cfg_owndd) SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);   /* no sleep while playing */

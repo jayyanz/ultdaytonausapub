@@ -1,8 +1,9 @@
 # Third-party notices
 
 `ddraw.dll` and `ultdaytonausa-setup.exe` include the following third-party software, built from source by
-`build/build_sdl3.sh` and `build/build_flac.sh` (fetched from the official repositories at the versions named) or
-kept in `src/third_party/`. Our own code is released under CC0 1.0 (see `LICENSE`).
+`build/build_sdl3.sh` and `build/build_flac.sh` (fetched from the official repositories at the versions named),
+kept in `src/third_party/`, or ported into our own source (the CRT shader). Our own code is released under CC0 1.0
+(see `LICENSE`).
 
 ## SDL3 3.2.24 (in ddraw.dll)
 
@@ -191,3 +192,37 @@ Both files are built with the MinGW-w64 GCC compiler and link its runtime static
 (libgcc, libstdc++) under the GNU General Public License version 3 with the GCC Runtime Library Exception, which
 allows them in programs under any licence, and the MinGW-w64 runtime (https://www.mingw-w64.org/), which is
 under permissive licences (mostly public domain, ZPL 2.1 and MIT-style).
+
+## Hyllian's CRT shader, from DOSBox Staging (in ddraw.dll)
+
+The CRT filter (Release 2, CRT on the DISPLAY page, `[Display] Crt`) is DOSBox Staging's `resources/shaders/crt/crt-hyllian.glsl`
+(https://github.com/dosbox-staging/dosbox-staging , commit 27b1b7ca, 3 Nov 2026), ported to HLSL in
+`src/present_d3d11.cpp`, with the values of DOSBox Staging's arcade presets
+(`resources/shader-presets/crt/crt-hyllian/arcade-*.preset`). The shader file is under the MIT licence (DOSBox
+Staging itself is GPL, but this file carries its own MIT licence). Its mask code is by hunterk and is in the public
+domain.
+
+```
+SPDX-FileCopyrightText:  2020-2026 The DOSBox Staging Team
+SPDX-FileCopyrightText:  2021-2020 Hyllian <sergiogdb@gmail.com>
+SPDX-FileCopyrightText:  2020-2020 Tyrells
+SPDX-License-Identifier: MIT
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

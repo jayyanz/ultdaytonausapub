@@ -12,9 +12,11 @@
  *     wraps round to a huge count (and overruns the list) if cars and near cells ever filled it first.
  *   FAR and MAX: our own routine. The camera's cell and heading as the game takes them; every cell within the radius
  *     that can be in view (the screen's horizontal field of view, 47.7 degrees either side, plus a cell of margin),
- *     in rings from the nearest outwards, so a full list trims the horizon and never the road ahead. Each cell's two
- *     polygon lists go to the game's own transform-and-project routine (0x452F10, 0x41DE30 on the Expert course), as
- *     the game's routines do, each clamped to the room left in the list. The game's out-of-grid safety is kept: the
+ *     in distance bands from the nearest outwards, so a full list trims the horizon and never the road ahead; a band
+ *     that does not fit whole is taken back out (the list count reset), so the course ends at an even distance rather
+ *     than with holes at the screen's sides (1.1.8). Each cell's two polygon lists go to the game's own
+ *     transform-and-project routine (0x452F10, 0x41DE30 on the Expert course), as the game's routines do, each clamped
+ *     to the room left in the list. The game's out-of-grid safety is kept: the
  *     player car's position is saved every frame, and restored with nothing drawn if the camera leaves the grid.
  */
 #define WIN32_LEAN_AND_MEAN
@@ -40,7 +42,7 @@ int g_radius[3] = { 0, 12, 18 };   /* FAR, MAX: set by measurement (status.md, 1
 
 /* statistics for [Test] DrawDistanceLog */
 DWORD g_t0;
-int g_frames, g_before_max, g_after_max, g_full, g_cells, g_cut;
+int g_frames, g_before_max, g_after_max, g_full, g_cells, g_cut, g_short;
 
 using emit_t = void (__cdecl *)(BYTE *poly, BYTE *verts, int bank, int count);
 
@@ -87,29 +89,48 @@ void own_window(int R)
     double a = (at<DWORD>(kYaw) & 0xFFFF) * (6.283185307179586 / 65536.0);
     double fr = -cos(a), fc = -sin(a);
     const double tan_half = 176.0 / 160.0, margin = 1.25;
-    /* rings from the nearest outwards; within a ring, the centre of view first, so a full list trims the horizon's
-       edges before its middle (the 3x3 round the camera is drawn by the game, 0x444740) */
-    struct Cell { int cell; double side; } ring[8 * 32];
-    for (int d = 2; d <= R; d++) {
-        int n = 0;
-        for (int dr = -d; dr <= d; dr++)
-            for (int dc = -d; dc <= d; dc++) {
-                if (abs(dr) != d && abs(dc) != d) continue;
-                if (dr * dr + dc * dc > (R + 0.5) * (R + 0.5)) continue;
-                double fwd = dr * fr + dc * fc, side = fabs(dc * fr - dr * fc);
-                if (fwd < -margin || side > fwd * tan_half + margin * 1.5) continue;
-                int r = (int)row + dr, cc = (int)col + dc;
-                if (r < 0 || r > 63 || cc < 0 || cc > 63) continue;
-                ring[n++] = { r * 64 + cc, side };
-            }
-        for (int i = 1; i < n; i++)                     /* insertion sort: at most a few dozen cells */
-            for (int j = i; j > 0 && ring[j].side < ring[j - 1].side; j--) { Cell t = ring[j]; ring[j] = ring[j - 1]; ring[j - 1] = t; }
-        for (int i = 0; i < n; i++) {
-            int cell = ring[i].cell;
+    /* Distance bands from the nearest outwards (a band: the cells whose centres are exactly as far away, so the left
+       and right of the view go together; the 3x3 round the camera is drawn by the game, 0x444740); within a band, the
+       centre of view first. A band that
+       does not fit whole in the list is taken back out and drawing stops there, so a full list ends the course at an
+       even distance across the screen instead of leaving holes at its sides (jayyanz 7 Nov 2026: MAX culled the far
+       ends of the Beginner stands at both sides of the screen with the pack on the start straight). */
+    struct Cell { int cell, band; double side; };   /* band: squared distance in cells */
+    static Cell cells[64 * 64];
+    int n = 0;
+    for (int dr = -R; dr <= R; dr++)
+        for (int dc = -R; dc <= R; dc++) {
+            if (abs(dr) < 2 && abs(dc) < 2) continue;
+            const double d2 = dr * dr + dc * dc;
+            if (d2 > (R + 0.5) * (R + 0.5)) continue;
+            double fwd = dr * fr + dc * fc, side = fabs(dc * fr - dr * fc);
+            if (fwd < -margin || side > fwd * tan_half + margin * 1.5) continue;
+            int r = (int)row + dr, cc = (int)col + dc;
+            if (r < 0 || r > 63 || cc < 0 || cc > 63) continue;
+            cells[n++] = { r * 64 + cc, (int)d2, side };
+        }
+    qsort(cells, n, sizeof(Cell), [](const void *x, const void *y) {
+        const Cell &p = *(const Cell *)x, &q = *(const Cell *)y;
+        if (p.band != q.band) return p.band - q.band;
+        if (p.side != q.side) return p.side < q.side ? -1 : 1;
+        return p.cell - q.cell;
+    });
+    for (int i = 0; i < n;) {
+        const int band = cells[i].band, start = at<int>(kCount), cut0 = g_cut;
+        int j = i;
+        for (; j < n && cells[j].band == band; j++) {
+            const int cell = cells[j].cell;
             g_cells++;
             emit(fn, pa + ofA[cell], va, cnA[cell]);
             emit(fn, pb + ofB[cell], vb, cnB[cell]);
         }
+        if (g_cut != cut0) {                            /* this band did not fit: take it back out and stop */
+            g_cut += at<int>(kCount) - start;
+            at<int>(kCount) = start;
+            g_short++;
+            return;
+        }
+        i = j;
     }
 }
 
@@ -132,10 +153,10 @@ void __cdecl course()
     DWORD now = GetTickCount();
     if (!g_t0) g_t0 = now;
     if (now - g_t0 >= 1000) {
-        plog("draw distance: level %d (radius %d) course %d mode %d: %d frames, before course max %d, list max %d, full %d, cut %d, cells/frame %d",
-             level, g_radius[level], at<int>(kCourse), at<int>(0x482230), g_frames, g_before_max, g_after_max, g_full, g_cut,
+        plog("draw distance: level %d (radius %d) course %d mode %d: %d frames, before course max %d, list max %d, full %d, stopped short %d, cut %d, cells/frame %d",
+             level, g_radius[level], at<int>(kCourse), at<int>(0x482230), g_frames, g_before_max, g_after_max, g_full, g_short, g_cut,
              g_frames ? g_cells / g_frames : 0);
-        g_t0 = now; g_frames = g_before_max = g_after_max = g_full = g_cut = g_cells = 0;
+        g_t0 = now; g_frames = g_before_max = g_after_max = g_full = g_cut = g_cells = g_short = 0;
     }
 }
 

@@ -2,6 +2,8 @@
 
 A modern Windows 11 layer for the 1996 PC version of Daytona USA (Sega). It keeps the original game exactly as it
 plays, and fixes what stops it running well today: the display, controllers, saving settings and the CD music.
+From Release 2 it can also draw the game's 3D at your screen's resolution, with filtered textures, smooth edges,
+perspective-correct texture mapping and an optional CRT look, while the game itself runs unchanged.
 
 It works as a `ddraw.dll` placed beside the game's own `DAYTONA.EXE`. The game loads it in place of the DirectDraw
 system file, and it changes the game while it runs. The game's own files are never modified.
@@ -17,7 +19,8 @@ Not affiliated with or endorsed by Sega. "Daytona USA" is used only to say which
 - **Daytona USA for Windows, version 1.1** (the Expert Software re-release; `DAYTONA.EXE`, 729,600 bytes). With any
   other version a message says so, and the game then runs without any changes.
 - Your own game disc, or an image of it as `.cue` and `.bin` (the image must include the music tracks).
-- A graphics card with Direct3D 11 (any card from the last fifteen years).
+- A graphics card with Direct3D 11 (any card from the last fifteen years). The new renderer at 4K with 8x
+  antialiasing wants a recent card; ENHANCED's 4x is lighter, and lower RESOLUTION or ANTIALIAS settings help.
 
 ## Installing
 
@@ -55,6 +58,18 @@ Install to a local drive. Running the game from a network drive makes loading ve
   the horse and horse 2, mirror mode, Time Lap, karaoke (with its lyrics now in time with the song), maniac rivals,
   the Advanced course's secret billboard, the Expert course's dancing statue, and the afro team photo. CHEATS
   UNLOCK NO (default): the bonus cars and horses come once earned; YES: all at once.
+- **New renderer (Release 2):** the game's own 3D drawn again by Direct3D 11 at your screen's resolution, from the
+  game's own polygons and textures in the game's own drawing order. PRESET on the DISPLAY page: ENHANCED (the
+  default: perspective-correct texture mapping, trilinear filtering, 4x antialiasing, a sharp race HUD) or ORIGINAL
+  (the 1996 look, the game's own renderer). Each part can also be set on its own: RESOLUTION, FILTER (nearest to
+  anisotropic), MAPPING (PC as the 1996 release, SATURN, PERSPECTIVE), ANTIALIAS, HUD SCALE (the race HUD at the
+  game's size or smaller, in whole pixels) and HUD FILTER. The sky is drawn at full resolution too.
+- **CRT filter:** DOSBox Staging's CRT shader with its arcade presets: AUTO (from your screen's resolution), SATURN
+  (the Saturn's 320 x 200), PC (640 x 400) or 800P. Off by default.
+- **Depth buffer for ReShade:** DEPTH BUFFER on the DISPLAY page gives ReShade the 3D's real depth, so its depth
+  effects (ambient occlusion, depth of field, fog) work with ReShade's default settings. Off by default.
+- **Screenshots:** Page Down saves the picture as shown, as a PNG in the game folder's `screenshots` folder (with the
+  depth beside it when DEPTH BUFFER is on).
 - **Track draw distance:** two extra CLIP SIZE settings, FAR and MAX, draw the track further ahead. Off by default.
 - **Pause menu:** CONTINUE, RESTART RACE and EXIT TO TITLE.
 - **Smaller fixes:** settings the game forgot are kept between runs; EXIT on the mode select screen; one letter
@@ -74,6 +89,7 @@ If something goes wrong:
 
 | Problem | Try |
 |---|---|
+| The 3D looks wrong, or the game runs slowly | PRESET ORIGINAL on the DISPLAY page (or `[Display] Renderer3D=Original`): the game's own renderer |
 | Something in the new Options pages misbehaves | `[Proxy] OriginalOptionsMenu=1` brings back the game's original Options screen |
 | Black screen or no picture | `[Display] Renderer=GDI` (slower, without Direct3D 11) |
 | Display trouble that GDI does not fix | `[Proxy] OwnDirectDraw=0` goes back to Windows' own DirectDraw |
@@ -109,6 +125,7 @@ Built with, and included in the release files:
 - **SDL3** (Simple DirectMedia Layer), zlib licence, including HIDAPI under its BSD-style licence
 - **libFLAC** (Xiph.Org Foundation), BSD licence
 - **dr_flac** by David Reid, public domain or MIT No Attribution
+- **Hyllian's CRT shader** from DOSBox Staging (the CRT filter), MIT licence
 - the **MinGW-w64** runtime and the **GCC** runtime libraries (under the GCC Runtime Library Exception)
 
 Their licence texts are in `THIRD-PARTY-NOTICES.md`.

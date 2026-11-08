@@ -559,7 +559,42 @@ void crash_test_tick()
 /* ---------- health log ---------- */
 
 static volatile LONG g_frames;
-void health_note_frame() { InterlockedIncrement(&g_frames); }
+/* R2-9 frame pacing: each frame's time since the one before, in whole milliseconds (0 to 255; longer in the last),
+   counted for the minute and reset by the health line. The game shows menus at 60 frames a second and races at 20:
+   each frame should take about 16.7 or 50 ms; frames outside 12 to 22 and 40 to 60 ms are uneven. */
+static volatile LONG g_pace[256];
+static LARGE_INTEGER g_pace_freq, g_pace_last;
+void health_note_frame()
+{
+    InterlockedIncrement(&g_frames);
+    LARGE_INTEGER now; QueryPerformanceCounter(&now);
+    if (!g_pace_freq.QuadPart) QueryPerformanceFrequency(&g_pace_freq);
+    if (g_pace_last.QuadPart) {
+        const LONGLONG ms = (now.QuadPart - g_pace_last.QuadPart) * 1000 / g_pace_freq.QuadPart;
+        InterlockedIncrement(&g_pace[ms < 0 ? 0 : ms > 255 ? 255 : ms]);
+    }
+    g_pace_last = now;
+}
+
+/* "60 Hz frames n (median a ms, 95% b ms), 20 Hz frames m (...), uneven k (longest l ms)", then reset */
+static void pacing_line(char *out, size_t n)
+{
+    LONG h[256];
+    for (int i = 0; i < 256; i++) h[i] = InterlockedExchange(&g_pace[i], 0);
+    auto band = [&](int lo, int hi, LONG &count, int &med, int &p95) {
+        count = 0; for (int i = lo; i <= hi; i++) count += h[i];
+        med = p95 = 0; LONG c = 0;
+        for (int i = lo; i <= hi && count; i++) { c += h[i]; if (!med && c * 2 >= count) med = i; if (c * 20 >= count * 19) { p95 = i; break; } }
+    };
+    LONG n60, n20; int m60, q60, m20, q20;
+    band(12, 22, n60, m60, q60); band(40, 60, n20, m20, q20);
+    LONG other = 0; int longest = 0;
+    for (int i = 0; i < 256; i++) { if ((i >= 12 && i <= 22) || (i >= 40 && i <= 60)) continue; other += h[i]; if (h[i]) longest = i; }
+    char tail[48] = "";
+    if (other) snprintf(tail, sizeof tail, " (longest %d%s ms)", longest, longest >= 255 ? "+" : "");
+    snprintf(out, n, "pacing: 60 Hz frames %ld (median %d ms, 95%% %d ms), 20 Hz frames %ld (median %d ms, 95%% %d ms), uneven %ld%s",
+             n60, m60, q60, n20, m20, q20, other, tail);
+}
 
 static DWORD WINAPI health_thread(LPVOID)
 {
@@ -576,6 +611,8 @@ static DWORD WINAPI health_thread(LPVOID)
              GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS), GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS),
              f, (f - last) / 60.0);
         last = f;
+        char pace[256]; pacing_line(pace, sizeof pace);
+        plog("%s", pace);
     }
     return 0;
 }
